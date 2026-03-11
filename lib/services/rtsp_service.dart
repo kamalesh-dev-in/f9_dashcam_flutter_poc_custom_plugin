@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
 import 'package:media_kit/media_kit.dart';
+import '../models/f9_file.dart';
 
 /// RTSP stream configuration for EEASY-TECH dashcam
 class RtspConfig {
@@ -370,6 +373,174 @@ class RtspService {
       'mediaInfo': _mediaInfo?.toString(),
       'connectionLog': _connectionLog,
     };
+  }
+
+  // ==================== PLAYBACK API METHODS ====================
+
+  /// Get file list from the dashcam
+  /// API endpoint: GET /app/getfilelist?folder={type}&start={n}&end={n}
+  /// Note: end is exclusive, so for 20 items: start=0&end=19
+  Future<FileListResponse> getFileList({
+    FileFolder? folder,
+    int? start,
+    int? end,
+  }) async {
+    final folderType = folder?.apiValue ?? FileFolder.loop.apiValue;
+    final startIdx = start ?? 0;
+    final endIdx = end ?? (startIdx + 20 - 1); // Default 20 items per page
+    final url = '$baseUrl/app/getfilelist?folder=$folderType&start=$startIdx&end=$endIdx';
+    _log('Getting file list: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 30)); // Increased timeout
+
+      _log('File list response status: ${response.statusCode}');
+      _log('File list response body (first 500 chars): ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}');
+
+      if (response.statusCode == 200) {
+        try {
+          final json = jsonDecode(response.body) as Map<String, dynamic>;
+          final fileList = FileListResponse.fromJson(folderType, json);
+          _log('File list parsed: ${fileList.count} files, ${fileList.files.length} in list');
+          return fileList;
+        } catch (e) {
+          _log('JSON parsing failed: $e');
+          _log('Response body that failed to parse: ${response.body}');
+          // Return empty list but log the error
+          return FileListResponse(
+            folder: folder ?? FileFolder.loop,
+            count: 0,
+            files: [],
+          );
+        }
+      } else {
+        _log('File list: FAILED (status ${response.statusCode})');
+        throw Exception('Get file list failed: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      _log('File list: ERROR - $e');
+      _errorMessage = 'Get file list error: $e';
+      rethrow;
+    }
+  }
+
+  /// Get thumbnail image bytes for a file
+  /// API endpoint: GET /app/getthumbnail?file={path}
+  Future<Uint8List> getThumbnail(String filePath) async {
+    final url = '$baseUrl/app/getthumbnail?file=$filePath';
+    _log('Getting thumbnail: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+
+      _log('Thumbnail response: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        _log('Thumbnail fetched: ${response.bodyBytes.length} bytes');
+        return response.bodyBytes;
+      } else {
+        _log('Thumbnail: FAILED (status ${response.statusCode})');
+        throw Exception('Get thumbnail failed: ${response.statusCode}');
+      }
+    } catch (e) {
+      _log('Thumbnail: ERROR - $e');
+      rethrow;
+    }
+  }
+
+  /// Delete a file from the SD card
+  /// API endpoint: GET /app/deletefile?file={path}
+  Future<bool> deleteFile(String filePath) async {
+    final url = '$baseUrl/app/deletefile?file=$filePath';
+    _log('Deleting file: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+
+      _log('Delete file response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        _log('File deleted successfully');
+        return true;
+      } else {
+        _log('Delete file: FAILED (status ${response.statusCode})');
+        _errorMessage = 'Delete file failed: ${response.statusCode}';
+        return false;
+      }
+    } catch (e) {
+      _log('Delete file: ERROR - $e');
+      _errorMessage = 'Delete file error: $e';
+      return false;
+    }
+  }
+
+  /// Enter playback mode
+  /// API endpoint: GET /app/playback?param=enter
+  Future<bool> enterPlaybackMode() async {
+    final url = '$baseUrl/app/playback?param=enter';
+    _log('Entering playback mode: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 5));
+
+      _log('Enter playback response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        _log('Playback mode entered successfully');
+        return true;
+      } else {
+        _log('Enter playback: FAILED (status ${response.statusCode})');
+        _errorMessage = 'Enter playback failed: ${response.statusCode}';
+        return false;
+      }
+    } catch (e) {
+      _log('Enter playback: ERROR - $e');
+      _errorMessage = 'Enter playback error: $e';
+      return false;
+    }
+  }
+
+  /// Exit playback mode
+  /// API endpoint: GET /app/playback?param=exit
+  Future<bool> exitPlaybackMode() async {
+    final url = '$baseUrl/app/playback?param=exit';
+    _log('Exiting playback mode: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 5));
+
+      _log('Exit playback response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        _log('Playback mode exited successfully');
+        return true;
+      } else {
+        _log('Exit playback: FAILED (status ${response.statusCode})');
+        _errorMessage = 'Exit playback failed: ${response.statusCode}';
+        return false;
+      }
+    } catch (e) {
+      _log('Exit playback: ERROR - $e');
+      _errorMessage = 'Exit playback error: $e';
+      return false;
+    }
+  }
+
+  /// Build RTSP URL for file playback
+  /// [filePath] is the file path (e.g., "SD0/Loop/2024-01-15/REC_20240115_143026.mov")
+  /// [port] is the RTSP port (default 554, can also use 8554)
+  String buildPlaybackRtspUrl(String filePath, {int port = 554}) {
+    return 'rtsp://192.168.169.1:$port/$filePath';
   }
 }
 
