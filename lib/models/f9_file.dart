@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 /// File folder types on the dashcam
 enum FileFolder {
   loop,
@@ -271,19 +269,38 @@ class FileListResponse {
   });
 
   /// Parse from API JSON response
-  /// The API returns: {"result": 0, "info": [{folder, count, files: [...]}]}
+  /// The API returns: {"result": 0, "info": [...]}
+  /// C1S format: info[0]=videos, info[1]=other, info[2]=photos
   factory FileListResponse.fromJson(String folder, Map<String, dynamic> json) {
     final fileList = <F9File>[];
 
     List<dynamic>? filesList;
 
-    // The actual API structure: {"result": 0, "info": [{folder, count, files: [...]}]}
+    // The actual API structure: {"result": 0, "info": [...]}
     final info = json['info'];
     if (info is List && info.isNotEmpty) {
-      final firstInfo = info[0];
-      if (firstInfo is Map<String, dynamic>) {
-        filesList = firstInfo['files'] as List<dynamic>?;
-        print('[FileListResponse] Found files in info[0][files]: ${filesList?.length ?? 0} items');
+      // C1S format: info is an array where info[2] contains photos
+      // For photo folder, try info[2] first
+      if (folder.toLowerCase() == 'photo' && info.length > 2) {
+        filesList = info[2] as List<dynamic>?;
+        if (filesList != null) {
+          print('[FileListResponse] Found photo files in info[2]: ${filesList.length} items');
+        }
+      }
+
+      // Standard format: info[0] contains the file list
+      if (filesList == null) {
+        final firstInfo = info[0];
+        if (firstInfo is Map<String, dynamic>) {
+          filesList = firstInfo['files'] as List<dynamic>?;
+          if (filesList != null) {
+            print('[FileListResponse] Found files in info[0][files]: ${filesList.length} items');
+          }
+        } else if (firstInfo is List) {
+          // info[0] might be a direct array
+          filesList = firstInfo;
+          print('[FileListResponse] Found files in info[0] as array: ${filesList.length} items');
+        }
       }
     }
 

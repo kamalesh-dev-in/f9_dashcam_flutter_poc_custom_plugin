@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'screens/live_stream_screen.dart';
 import 'screens/playback_list_screen.dart';
+import 'screens/settings_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,6 +75,7 @@ class _MainScreenState extends State<MainScreen> {
         children: const [
           LiveStreamScreen(),
           PlaybackListScreen(),
+          SettingsScreen(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -93,6 +95,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.folder),
             activeIcon: Icon(Icons.folder_rounded),
             label: 'Playback',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            activeIcon: Icon(Icons.settings_rounded),
+            label: 'Settings',
           ),
         ],
       ),

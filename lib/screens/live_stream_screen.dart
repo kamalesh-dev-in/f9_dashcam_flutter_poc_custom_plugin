@@ -23,6 +23,8 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
   RtspTransport _selectedTransport = RtspTransport.udp;
   bool _isLoading = false;
   bool _showDebugLog = false;
+  bool _isTakingSnapshot = false;
+  bool _showFlash = false;
   String? _errorMessage;
 
   @override
@@ -145,6 +147,111 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
 
   Future<void> _reconnect({bool skipPrerequisites = false}) async {
     await _connectToStream(skipPrerequisites: skipPrerequisites);
+  }
+
+  /// Take a snapshot using the dashcam's snapshot API
+  Future<void> _takeSnapshot() async {
+    if (_isTakingSnapshot) return; // Prevent double-tap
+
+    // Trigger flash animation
+    setState(() {
+      _isTakingSnapshot = true;
+      _showFlash = true;
+    });
+
+    try {
+      final photoPath = await _rtspService.takeSnapshot();
+
+      // Hide flash after delay
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) {
+          setState(() {
+            _showFlash = false;
+          });
+        }
+      });
+
+      if (mounted) {
+        if (photoPath.isNotEmpty) {
+          // Snapshot successful with path
+          final fileName = photoPath.split('/').last;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Snapshot saved: $fileName')),
+                ],
+              ),
+              duration: const Duration(seconds: 3),
+              backgroundColor: Colors.green,
+              action: SnackBarAction(
+                label: 'VIEW',
+                textColor: Colors.white,
+                onPressed: () {
+                  // TODO: Navigate to photo viewer
+                },
+              ),
+            ),
+          );
+        } else if (photoPath == '') {
+          // Snapshot successful but path not found (API worked but file list query failed)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Snapshot saved to /photo/ folder')),
+                ],
+              ),
+              duration: Duration(seconds: 2),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          // Snapshot failed
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.error, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Snapshot failed: ${_rtspService.errorMessage ?? "Unknown error"}'),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 3),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Snapshot error: $e')),
+              ],
+            ),
+            duration: const Duration(seconds: 3),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTakingSnapshot = false;
+        });
+      }
+    }
   }
 
   Color _getStatusColor() {
@@ -470,6 +577,11 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                       ),
                     ),
                   ),
+                // Flash overlay for snapshot feedback
+                if (_showFlash)
+                  Container(
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
                 // Debug log overlay
                 if (_showDebugLog && connectionLog.isNotEmpty)
                   Positioned(
@@ -596,6 +708,24 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
           ),
         ],
       ),
+      floatingActionButton: _rtspService.status == StreamConnectionStatus.connected
+          ? FloatingActionButton.extended(
+              onPressed: _isTakingSnapshot ? null : _takeSnapshot,
+              icon: _isTakingSnapshot
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+                      ),
+                    )
+                  : const Icon(Icons.camera_alt),
+              label: Text(_isTakingSnapshot ? 'Capturing...' : 'Snapshot'),
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+            )
+          : null,
     );
   }
 }

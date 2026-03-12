@@ -453,6 +453,40 @@ class RtspService {
     await connect(cameraIndex: cameraIndex);
   }
 
+  /// Set the speaker volume on the dashcam
+  /// API endpoint: GET /app/setparamvalue?param=speaker&value=<level>
+  /// [volume] is the volume level (0=off, 1=low, 2=middle, 3=high, 4=very high)
+  Future<bool> setSpeakerVolume(int volume) async {
+    if (volume < 0 || volume > 4) {
+      _errorMessage = 'Invalid volume level: must be 0-4';
+      return false;
+    }
+
+    final url = '$baseUrl/app/setparamvalue?param=speaker&value=$volume';
+    _log('Setting speaker volume: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 5));
+
+      _log('Speaker volume response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        _log('Speaker volume: SUCCESS (level: $volume)');
+        return true;
+      } else {
+        _log('Speaker volume: FAILED (status ${response.statusCode})');
+        _errorMessage = 'Set speaker volume failed: ${response.statusCode}';
+        return false;
+      }
+    } catch (e) {
+      _log('Speaker volume: ERROR - $e');
+      _errorMessage = 'Set speaker volume error: $e';
+      return false;
+    }
+  }
+
   /// Monitor stream quality and detect buffering issues
   /// Call this after connection to track stream health
   void monitorStreamQuality({
@@ -709,6 +743,108 @@ class RtspService {
   /// [port] is the RTSP port (default 554, can also use 8554)
   String buildPlaybackRtspUrl(String filePath, {int port = 554}) {
     return 'rtsp://192.168.169.1:$port/$filePath';
+  }
+
+  /// Take a photo snapshot from the current camera view
+  /// API endpoint: GET /app/snapshot (C1S style)
+  /// The dashcam captures a photo to its SD card at /photo/ folder
+  /// Returns the file path of the captured photo if found in file list, or empty string on success
+  Future<String> takeSnapshot() async {
+    final url = '$baseUrl/app/snapshot';
+    _log('Taking snapshot: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+
+      _log('Snapshot response: ${response.statusCode} - ${response.body}');
+
+      if (response.statusCode == 200) {
+        _log('Snapshot: SUCCESS - Photo saved to EVENT folder on SD card');
+
+        // Wait a moment for the file to be written to SD card
+        await Future.delayed(const Duration(milliseconds: 1000));
+
+        // Query the event file list to get the exact path (photos are stored in event folder)
+        final photoPath = await _getLatestPhotoFromEvent();
+        if (photoPath != null) {
+          _log('Snapshot: Photo path found: $photoPath');
+          return photoPath;
+        } else {
+          _log('Snapshot: Photo path not found in file list');
+          return '';
+        }
+      } else {
+        _log('Snapshot: FAILED (status ${response.statusCode})');
+        _errorMessage = 'Snapshot failed: ${response.statusCode}';
+        return '';
+      }
+    } catch (e) {
+      _log('Snapshot: ERROR - $e');
+      _errorMessage = 'Snapshot error: $e';
+      return '';
+    }
+  }
+
+  /// Get the latest photo path from the event folder
+  /// C1S dashcam stores snapshots in the EVENT folder
+  /// Queries the file list and returns the most recent photo (type=1)
+  Future<String?> _getLatestPhotoFromEvent() async {
+    final url = '$baseUrl/app/getfilelist?folder=event&start=0&end=19';
+    _log('Fetching event list for photos: $url');
+
+    try {
+      final response = await http
+          .get(Uri.parse(url))
+          .timeout(const Duration(seconds: 10));
+
+      _log('Event list response: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        _log('Event list body: ${response.body}');
+        try {
+          final json = jsonDecode(response.body) as Map<String, dynamic>;
+          _log('Event list parsed JSON: $json');
+          final info = json['info'];
+          _log('Event list info type: ${info.runtimeType}');
+
+          // C1S format: info is an array of file objects
+          if (info is List && info.isNotEmpty) {
+            _log('Event list has ${info.length} files');
+            // Look for the most recent photo (type=1)
+            for (final item in info) {
+              if (item is Map<String, dynamic>) {
+                final type = item['type'] as int?;
+                final name = item['name'] as String?;
+                final createtimestr = item['createtimestr'] as String?;
+
+                _log('Event file: name=$name, type=$type');
+
+                // type=1 means picture, type=2 means video
+                if (type == 1 && name != null) {
+                  _log('Found photo in event folder: $name (created: $createtimestr)');
+                  return name;
+                }
+              }
+            }
+            _log('No photos (type=1) found in event folder');
+          } else {
+            _log('Event list info is not a list or is empty');
+          }
+          return null;
+        } catch (e) {
+          _log('Failed to parse event list: $e');
+          return null;
+        }
+      } else {
+        _log('Event list: FAILED (status ${response.statusCode})');
+        return null;
+      }
+    } catch (e) {
+      _log('Event list: ERROR - $e');
+      return null;
+    }
   }
 }
 

@@ -4,6 +4,7 @@ import '../services/rtsp_service.dart';
 import '../widgets/file_list_item.dart';
 import '../widgets/file_grid_item.dart';
 import 'video_player_screen.dart';
+import 'image_viewer_screen.dart';
 
 enum ViewMode { list, grid }
 
@@ -117,45 +118,13 @@ class _PlaybackListScreenState extends State<PlaybackListScreen>
         _loadFiles();
       });
     } else {
-      _showImageDialog(file);
-    }
-  }
-
-  void _showImageDialog(F9File file) {
-    showDialog(
-      context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.black,
-        child: Stack(
-          children: [
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    file.name,
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Image viewer coming soon',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ),
-          ],
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ImageViewerScreen(file: file),
         ),
-      ),
-    );
+      );
+    }
   }
 
   Future<void> _handleDeleteFile(F9File file) async {
