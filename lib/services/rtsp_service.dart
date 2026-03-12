@@ -6,6 +6,17 @@ import 'package:http/http.dart' as http;
 import 'package:media_kit/media_kit.dart';
 import '../models/f9_file.dart';
 
+/// RTSP transport protocol options
+enum RtspTransport {
+  udp('udp', 'Low Latency'),
+  tcp('tcp', 'Reliable');
+
+  final String value;
+  final String description;
+
+  const RtspTransport(this.value, this.description);
+}
+
 /// RTSP stream configuration for EEASY-TECH dashcam
 class RtspConfig {
   /// Base URL for the dashcam HTTP API
@@ -32,6 +43,53 @@ class RtspConfig {
 
   /// Enable debug logging
   static const bool debug = true;
+
+  // ==================== LOW-LATENCY CONFIGURATION ====================
+
+  /// Enable low-latency streaming mode
+  static const bool enableLowLatency = true;
+
+  /// RTSP transport protocol: 'udp' for low latency, 'tcp' for reliability
+  static const RtspTransport rtspTransport = RtspTransport.udp;
+
+  /// Use alternative RTSP URL format (path-based like vidure)
+  /// false: rtsp://192.168.169.1:554?channel=X (current)
+  /// true: rtsp://192.168.169.1:554/264_pcm_rt/front.fhd (alternative)
+  static const bool useAlternativeUrlFormat = false;
+
+  /// Buffer size in bytes (4KB for minimal probing like vidure)
+  static const int probeSize = 4096;
+
+  /// Analysis duration in microseconds (1 second for quick startup)
+  static const int analyzeduration = 1000000;
+
+  /// Maximum buffer size (0 = no buffering)
+  static const int maxBufferSize = 0;
+
+  /// Minimum frames before playback (1 = start immediately)
+  static const int minFrames = 1;
+
+  /// Enable frame dropping for poor network conditions
+  static const bool enableFrameDrop = true;
+
+  /// Connection timeout
+  static const Duration connectionTimeout = Duration(seconds: 10);
+
+  /// FFmpeg flags: no buffering
+  static const String fflags = 'nobuffer';
+
+  /// FFmpeg flags: low delay mode
+  static const String flags = 'low_delay';
+
+  /// Hardware decoding (uses platform defaults)
+  static const bool enableHardwareDecoding = true;
+
+  /// Alternative RTSP URL paths for different cameras/qualities
+  static const Map<String, String> alternativePaths = {
+    '0': '264_pcm_rt/front.fhd',  // Front camera FHD
+    '1': '264_pcm_rt/rear.fhd',   // Rear camera FHD
+    '2': '264_pcm_rt/front.fhd',  // PiP uses front
+  };
 }
 
 /// Connection status for the RTSP stream
@@ -50,10 +108,21 @@ class RtspService {
   StreamConnectionStatus _status = StreamConnectionStatus.disconnected;
   String? _errorMessage;
   Timer? _heartbeatTimer;
+  Timer? _bufferingTimer;
   MediaInfo? _mediaInfo;
 
   /// List of connection step results for debugging
   final List<String> _connectionLog = [];
+
+  /// Current transport protocol setting
+  RtspTransport _transport = RtspConfig.rtspTransport;
+
+  /// Connection timestamp for debouncing initial buffering
+  DateTime? _connectionTimestamp;
+
+  /// Callbacks for stream quality events
+  void Function()? _onBufferingDetected;
+  void Function(RtspTransport)? _onTransportSwitchRecommended;
 
   RtspService({String? rtspUrl, String? baseUrl})
       : rtspUrl = rtspUrl ?? RtspConfig.defaultRtspUrl,
@@ -64,6 +133,15 @@ class RtspService {
 
   /// Get current connection status
   StreamConnectionStatus get status => _status;
+
+  /// Get current transport protocol
+  RtspTransport get transport => _transport;
+
+  /// Set transport protocol (requires reconnection to take effect)
+  void setTransport(RtspTransport transport) {
+    _transport = transport;
+    _log('Transport protocol set to: ${transport.value} (${transport.description})');
+  }
 
   /// Get error message if any
   String? get errorMessage => _errorMessage;
@@ -89,7 +167,17 @@ class RtspService {
       _player!.dispose();
     }
 
-    _player = Player();
+    // Create player configuration
+    final configuration = PlayerConfiguration();
+
+    if (RtspConfig.enableLowLatency) {
+      _log('Low-latency mode enabled');
+      _log('  - transport: ${_transport.value} (${_transport.description})');
+      _log('  - Note: Full FFmpeg options require platform-specific implementation');
+      _log('  - URL parameters will be used for transport hint');
+    }
+
+    _player = Player(configuration: configuration);
     _status = StreamConnectionStatus.disconnected;
     _errorMessage = null;
     _connectionLog.clear();
@@ -275,9 +363,20 @@ class RtspService {
         _log('Skipping prerequisites (skipPrerequisites=true)');
       }
 
-      // Step 4: Open RTSP stream
-      final url = '$rtspUrl?channel=${RtspConfig.cameraChannels[cameraIndex]}';
-      _log('Step 4: Opening RTSP stream: $url');
+      // Step 4: Open RTSP stream with transport parameter
+      String url;
+      if (RtspConfig.useAlternativeUrlFormat) {
+        // Use path-based URL format (like vidure)
+        final path = RtspConfig.alternativePaths[RtspConfig.cameraChannels[cameraIndex]] ??
+                     RtspConfig.alternativePaths['0']!;
+        url = '$rtspUrl/$path';
+        _log('Step 4: Opening RTSP stream (alternative format): $url');
+      } else {
+        // Use query parameter format (current)
+        url = '$rtspUrl?channel=${RtspConfig.cameraChannels[cameraIndex]}&transport=${_transport.value}';
+        _log('Step 4: Opening RTSP stream: $url');
+      }
+      _log('  - Transport: ${_transport.value} (${_transport.description})');
 
       await _player!.open(Media(url), play: true);
       _log('RTSP stream opened successfully');
@@ -301,6 +400,7 @@ class RtspService {
       _startHeartbeat();
 
       _status = StreamConnectionStatus.connected;
+      _connectionTimestamp = DateTime.now(); // Set timestamp for buffering debounce
       _log('=== Connection established ===');
     } catch (e) {
       _log('=== Connection FAILED: $e ===');
@@ -353,10 +453,78 @@ class RtspService {
     await connect(cameraIndex: cameraIndex);
   }
 
+  /// Monitor stream quality and detect buffering issues
+  /// Call this after connection to track stream health
+  void monitorStreamQuality({
+    void Function()? onBufferingDetected,
+    void Function(RtspTransport)? onTransportSwitchRecommended,
+  }) {
+    if (_player == null) return;
+
+    // Store callbacks
+    _onBufferingDetected = onBufferingDetected;
+    _onTransportSwitchRecommended = onTransportSwitchRecommended;
+
+    // Set connection timestamp for debouncing
+    _connectionTimestamp = DateTime.now();
+
+    // Monitor for buffering events (indicates network issues)
+    _player!.stream.buffering.listen((isBuffering) {
+      if (isBuffering) {
+        _handleBufferingStart();
+      } else {
+        _handleBufferingEnd();
+      }
+    });
+
+    // Monitor for errors
+    _player!.stream.error.listen((error) {
+      _log('Stream quality error detected: $error');
+    });
+
+    _log('Stream quality monitoring enabled');
+  }
+
+  /// Handle buffering start with debouncing
+  void _handleBufferingStart() {
+    // Ignore buffering in the first 3 seconds after connection (initial buffer fill)
+    if (_connectionTimestamp != null) {
+      final timeSinceConnection = DateTime.now().difference(_connectionTimestamp!);
+      if (timeSinceConnection.inSeconds < 3) {
+        // Initial buffer fill - don't log or trigger callbacks
+        return;
+      }
+    }
+
+    // Cancel any existing timer
+    _bufferingTimer?.cancel();
+
+    // Start a timer - only trigger callback if buffering persists for >3 seconds
+    _bufferingTimer = Timer(const Duration(seconds: 3), () {
+      _log('Persistent buffering detected (>3s) - network may be slow');
+      _onBufferingDetected?.call();
+
+      // If using UDP and experiencing persistent buffering, recommend switching to TCP
+      if (_transport == RtspTransport.udp) {
+        _log('Persistent buffering with UDP transport - consider switching to TCP');
+        _onTransportSwitchRecommended?.call(RtspTransport.tcp);
+      }
+    });
+  }
+
+  /// Handle buffering end
+  void _handleBufferingEnd() {
+    // Cancel the timer - buffering was temporary
+    _bufferingTimer?.cancel();
+    _bufferingTimer = null;
+  }
+
   /// Dispose of resources
   void dispose() {
     _log('Disposing service...');
     _stopHeartbeat();
+    _bufferingTimer?.cancel();
+    _bufferingTimer = null;
     _player?.dispose();
     _player = null;
     _status = StreamConnectionStatus.disconnected;

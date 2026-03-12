@@ -20,6 +20,7 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
   VideoController? _videoController;
 
   int _selectedCameraIndex = 0;
+  RtspTransport _selectedTransport = RtspTransport.udp;
   bool _isLoading = false;
   bool _showDebugLog = false;
   String? _errorMessage;
@@ -28,6 +29,8 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
   void initState() {
     super.initState();
     _rtspService = RtspService(rtspUrl: widget.rtspUrl);
+    // Set initial transport from config
+    _selectedTransport = _rtspService.transport;
     _connectToStream();
   }
 
@@ -45,6 +48,9 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
     });
 
     try {
+      // Set transport before connecting
+      _rtspService.setTransport(_selectedTransport);
+
       await _rtspService.connect(
         cameraIndex: _selectedCameraIndex,
         skipPrerequisites: skipPrerequisites,
@@ -52,6 +58,35 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
       // Create video controller with the player
       if (_rtspService.player != null && mounted) {
         _videoController = VideoController(_rtspService.player!);
+
+        // Enable stream quality monitoring
+        _rtspService.monitorStreamQuality(
+          onBufferingDetected: () {
+            if (mounted) {
+              setState(() {
+                _showDebugLog = true;
+              });
+            }
+          },
+          onTransportSwitchRecommended: (recommendedTransport) {
+            if (mounted && _selectedTransport != recommendedTransport) {
+              // Could show a snackbar or dialog here
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Buffering detected. Consider switching to ${recommendedTransport.description} transport.',
+                  ),
+                  action: SnackBarAction(
+                    label: 'SWITCH',
+                    onPressed: () => _switchTransport(recommendedTransport),
+                  ),
+                  duration: const Duration(seconds: 5),
+                ),
+              );
+            }
+          },
+        );
+
         setState(() {
           _isLoading = false;
         });
@@ -65,6 +100,17 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
         });
       }
     }
+  }
+
+  Future<void> _switchTransport(RtspTransport transport) async {
+    if (_selectedTransport == transport) return;
+
+    setState(() {
+      _selectedTransport = transport;
+    });
+
+    // Reconnect with new transport
+    await _reconnect(skipPrerequisites: false);
   }
 
   Future<void> _switchCamera(int index) async {
@@ -139,6 +185,89 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         actions: [
+          // Transport protocol selection
+          PopupMenuButton<RtspTransport>(
+            icon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _selectedTransport == RtspTransport.udp
+                      ? Icons.speed
+                      : Icons.wifi_protected_setup,
+                  size: 18,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _selectedTransport.value.toUpperCase(),
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            onSelected: (transport) {
+              _switchTransport(transport);
+            },
+            tooltip: 'Transport protocol',
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: RtspTransport.udp,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.speed,
+                      color: _selectedTransport == RtspTransport.udp
+                          ? Colors.blue
+                          : Colors.grey,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('UDP (Low Latency)'),
+                        Text(
+                          'Lower latency, accepts packet loss',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: RtspTransport.tcp,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.wifi_protected_setup,
+                      color: _selectedTransport == RtspTransport.tcp
+                          ? Colors.blue
+                          : Colors.grey,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('TCP (Reliable)'),
+                        Text(
+                          'Higher latency, error-free',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
           // Debug log toggle
           IconButton(
             icon: Icon(_showDebugLog ? Icons.bug_report : Icons.bug_report_outlined),
@@ -314,6 +443,27 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            _selectedTransport == RtspTransport.udp
+                                ? Icons.speed
+                                : Icons.wifi_protected_setup,
+                            color: _selectedTransport == RtspTransport.udp
+                                ? Colors.green.shade400
+                                : Colors.orange.shade400,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _selectedTransport.value.toUpperCase(),
+                            style: TextStyle(
+                              color: _selectedTransport == RtspTransport.udp
+                                  ? Colors.green.shade400
+                                  : Colors.orange.shade400,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
