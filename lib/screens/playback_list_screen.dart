@@ -27,6 +27,8 @@ class _PlaybackListScreenState extends State<PlaybackListScreen>
   String? _errorMessage;
 
   static const int _pageSize = 20;  // Default page size per API docs
+  // Standard BottomNavigationBar height + extra margin
+  static const double _kBottomNavHeight = 80.0;
   int _currentPage = 0;
 
   @override
@@ -266,6 +268,9 @@ class _PlaybackListScreenState extends State<PlaybackListScreen>
   Widget _buildFileList() {
     if (_viewMode == ViewMode.list) {
       return ListView.builder(
+        padding: EdgeInsets.only(
+          bottom: _kBottomNavHeight + MediaQuery.of(context).padding.bottom,
+        ),
         itemCount: _files.length,
         itemBuilder: (context, index) {
           final file = _files[index];
@@ -277,23 +282,32 @@ class _PlaybackListScreenState extends State<PlaybackListScreen>
         },
       );
     } else {
-      return GridView.builder(
-        padding: const EdgeInsets.all(8),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          crossAxisSpacing: 8,
-          mainAxisSpacing: 8,
-          childAspectRatio: 0.85,
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: _kBottomNavHeight + MediaQuery.of(context).padding.bottom,
         ),
-        itemCount: _files.length,
-        itemBuilder: (context, index) {
-          final file = _files[index];
-          return FileGridItem(
-            file: file,
-            onTap: () => _openFile(file),
-            onLongPress: () => _handleDeleteFile(file),
-          );
-        },
+        child: GridView.builder(
+          padding: const EdgeInsets.only(
+            left: 8,
+            right: 8,
+            top: 8,
+          ),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: 0.85,
+          ),
+          itemCount: _files.length,
+          itemBuilder: (context, index) {
+            final file = _files[index];
+            return FileGridItem(
+              file: file,
+              onTap: () => _openFile(file),
+              onLongPress: () => _handleDeleteFile(file),
+            );
+          },
+        ),
       );
     }
   }

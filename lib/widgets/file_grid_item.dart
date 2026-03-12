@@ -25,21 +25,25 @@ class FileGridItem extends StatelessWidget {
         color: Colors.transparent,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Center(
-              child: FileThumbnail(
-                file: file,
-                size: thumbnailSize,
+            Flexible(
+              fit: FlexFit.loose,
+              child: Center(
+                child: FileThumbnail(
+                  file: file,
+                  size: thumbnailSize,
+                ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Text(
                 file.name,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w500,
                 ),
                 maxLines: 2,
@@ -49,7 +53,7 @@ class FileGridItem extends StatelessWidget {
             ),
             const SizedBox(height: 2),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -57,22 +61,22 @@ class FileGridItem extends StatelessWidget {
                     file.sizeString,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.6),
-                      fontSize: 11,
+                      fontSize: 10,
                     ),
                   ),
                   if (file.type == FileType.video && file.duration > 0) ...[
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 3),
                     Text(
                       '·',
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.4),
-                        fontSize: 11,
+                        fontSize: 10,
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 3),
                     const Icon(
                       Icons.access_time,
-                      size: 12,
+                      size: 10,
                       color: Colors.white60,
                     ),
                     const SizedBox(width: 2),
@@ -80,21 +84,21 @@ class FileGridItem extends StatelessWidget {
                       file.durationString,
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.6),
-                        fontSize: 11,
+                        fontSize: 10,
                       ),
                     ),
                   ],
                 ],
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
               child: Text(
                 _formatDate(file.time),
                 style: TextStyle(
                   color: Colors.white.withOpacity(0.5),
-                  fontSize: 10,
+                  fontSize: 9,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
