@@ -1,0 +1,60 @@
+{
+	"configurations" : 
+	[
+		{
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"jsonFile" : "directory-.-Debug-f5ebdc15457944623624.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.6.0"
+					},
+					"projectIndex" : 0,
+					"source" : ".",
+					"targetIndexes" : 
+					[
+						0
+					]
+				}
+			],
+			"name" : "Debug",
+			"projects" : 
+			[
+				{
+					"directoryIndexes" : 
+					[
+						0
+					],
+					"name" : "dashcamplayer",
+					"targetIndexes" : 
+					[
+						0
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 0,
+					"id" : "dashcamplayer::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-dashcamplayer-Debug-ce88b7414a1ed7097fb1.json",
+					"name" : "dashcamplayer",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/arm64-v8a",
+		"source" : "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 3
+	}
+}

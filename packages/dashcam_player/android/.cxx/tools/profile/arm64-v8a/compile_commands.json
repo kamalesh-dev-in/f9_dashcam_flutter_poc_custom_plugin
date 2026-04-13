@@ -1,0 +1,17 @@
+[
+{
+  "directory": "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/arm64-v8a",
+  "command": "/Users/kamalesh/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++ --target=aarch64-none-linux-android24 --sysroot=/Users/kamalesh/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -DHAVE_FFMPEG -Ddashcamplayer_EXPORTS -I/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC -o CMakeFiles/dashcamplayer.dir/src/jni_bridge.cpp.o -c /Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/src/jni_bridge.cpp",
+  "file": "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/src/jni_bridge.cpp"
+},
+{
+  "directory": "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/arm64-v8a",
+  "command": "/Users/kamalesh/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++ --target=aarch64-none-linux-android24 --sysroot=/Users/kamalesh/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -DHAVE_FFMPEG -Ddashcamplayer_EXPORTS -I/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC -o CMakeFiles/dashcamplayer.dir/src/ffmpeg_player.cpp.o -c /Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/src/ffmpeg_player.cpp",
+  "file": "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/src/ffmpeg_player.cpp"
+},
+{
+  "directory": "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/arm64-v8a",
+  "command": "/Users/kamalesh/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/bin/clang++ --target=aarch64-none-linux-android24 --sysroot=/Users/kamalesh/Library/Android/sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/darwin-x86_64/sysroot -DHAVE_FFMPEG -Ddashcamplayer_EXPORTS -I/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/include -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC -o CMakeFiles/dashcamplayer.dir/src/surface_renderer.cpp.o -c /Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/src/surface_renderer.cpp",
+  "file": "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/src/surface_renderer.cpp"
+}
+]

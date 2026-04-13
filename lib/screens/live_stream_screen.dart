@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:media_kit_video/media_kit_video.dart';
+import 'package:dashcam_player/dashcam_player.dart';
 import '../services/rtsp_service.dart';
 
-/// Live streaming screen for the dashcam RTSP feed
+/// Live streaming screen for the dashcam RTSP feed.
+///
+/// Uses the native FFmpeg plugin (dashcam_player) for low-latency streaming
+/// via Android PlatformView with direct SurfaceView rendering.
 class LiveStreamScreen extends StatefulWidget {
   final String rtspUrl;
 
@@ -16,103 +19,89 @@ class LiveStreamScreen extends StatefulWidget {
 }
 
 class _LiveStreamScreenState extends State<LiveStreamScreen> {
-  late final RtspService _rtspService;
-  VideoController? _videoController;
+  DashcamPlayerController? _dashcamController;
+  RtspService? _rtspService; // Kept for HTTP APIs (snapshot, file list, etc.)
 
   int _selectedCameraIndex = 0;
-  RtspTransport _selectedTransport = RtspTransport.udp;
   bool _isLoading = false;
   bool _showDebugLog = false;
   bool _isTakingSnapshot = false;
   bool _showFlash = false;
   String? _errorMessage;
+  int? _latencyMs;
+
+  final List<String> _debugLog = [];
 
   @override
   void initState() {
     super.initState();
+    _initPlayer();
+  }
+
+  void _initPlayer() {
+    _dashcamController = DashcamPlayerController();
+
+    // Listen to events
+    _dashcamController!.onStatusChanged.listen((status) {
+      _addLog('[Status] $status');
+      if (status == 'Playing' && mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = null;
+        });
+      }
+    });
+
+    _dashcamController!.onError.listen((error) {
+      _addLog('[Error] $error');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = error;
+          _showDebugLog = true;
+        });
+      }
+    });
+
+    _dashcamController!.onLatencyMeasured.listen((latency) {
+      _addLog('[Latency] ${latency}ms');
+      if (mounted) {
+        setState(() {
+          _latencyMs = latency;
+        });
+      }
+    });
+
+    // RTSP service for HTTP-only APIs (snapshot, file list)
     _rtspService = RtspService(rtspUrl: widget.rtspUrl);
-    // Set initial transport from config
-    _selectedTransport = _rtspService.transport;
-    _connectToStream();
+  }
+
+  void _addLog(String message) {
+    _debugLog.add(message);
+    if (_debugLog.length > 100) {
+      _debugLog.removeAt(0);
+    }
   }
 
   @override
   void dispose() {
-    _rtspService.dispose();
+    _dashcamController?.dispose();
+    _rtspService?.dispose();
     super.dispose();
   }
 
-  Future<void> _connectToStream({bool skipPrerequisites = false}) async {
+  Future<void> _reconnect() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
-      _showDebugLog = false; // Hide debug log on new connection attempt
+      _latencyMs = null;
+      _showDebugLog = false;
     });
 
-    try {
-      // Set transport before connecting
-      _rtspService.setTransport(_selectedTransport);
-
-      await _rtspService.connect(
-        cameraIndex: _selectedCameraIndex,
-        skipPrerequisites: skipPrerequisites,
-      );
-      // Create video controller with the player
-      if (_rtspService.player != null && mounted) {
-        _videoController = VideoController(_rtspService.player!);
-
-        // Enable stream quality monitoring
-        _rtspService.monitorStreamQuality(
-          onBufferingDetected: () {
-            if (mounted) {
-              setState(() {
-                _showDebugLog = true;
-              });
-            }
-          },
-          onTransportSwitchRecommended: (recommendedTransport) {
-            if (mounted && _selectedTransport != recommendedTransport) {
-              // Could show a snackbar or dialog here
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Buffering detected. Consider switching to ${recommendedTransport.description} transport.',
-                  ),
-                  action: SnackBarAction(
-                    label: 'SWITCH',
-                    onPressed: () => _switchTransport(recommendedTransport),
-                  ),
-                  duration: const Duration(seconds: 5),
-                ),
-              );
-            }
-          },
-        );
-
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString();
-          _showDebugLog = true; // Show debug log on error
-        });
-      }
-    }
-  }
-
-  Future<void> _switchTransport(RtspTransport transport) async {
-    if (_selectedTransport == transport) return;
-
-    setState(() {
-      _selectedTransport = transport;
-    });
-
-    // Reconnect with new transport
-    await _reconnect(skipPrerequisites: false);
+    // Dispose old controller and create new one
+    await _dashcamController?.dispose();
+    _initPlayer();
+    setState(() {});
   }
 
   Future<void> _switchCamera(int index) async {
@@ -122,16 +111,13 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
       _selectedCameraIndex = index;
       _isLoading = true;
       _errorMessage = null;
-      _showDebugLog = false;
     });
 
     try {
-      await _rtspService.switchCamera(index);
-      // Recreate video controller with the player
-      if (_rtspService.player != null && mounted) {
-        _videoController = VideoController(_rtspService.player!);
+      final success = await _dashcamController?.switchCamera(index) ?? false;
+      if (mounted) {
         setState(() {
-          _isLoading = false;
+          _isLoading = !success;
         });
       }
     } catch (e) {
@@ -139,30 +125,23 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
         setState(() {
           _isLoading = false;
           _errorMessage = e.toString();
-          _showDebugLog = true;
         });
       }
     }
   }
 
-  Future<void> _reconnect({bool skipPrerequisites = false}) async {
-    await _connectToStream(skipPrerequisites: skipPrerequisites);
-  }
-
   /// Take a snapshot using the dashcam's snapshot API
   Future<void> _takeSnapshot() async {
-    if (_isTakingSnapshot) return; // Prevent double-tap
+    if (_isTakingSnapshot) return;
 
-    // Trigger flash animation
     setState(() {
       _isTakingSnapshot = true;
       _showFlash = true;
     });
 
     try {
-      final photoPath = await _rtspService.takeSnapshot();
+      final photoPath = await _rtspService?.takeSnapshot() ?? '';
 
-      // Hide flash after delay
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
           setState(() {
@@ -173,7 +152,6 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
 
       if (mounted) {
         if (photoPath.isNotEmpty) {
-          // Snapshot successful with path
           final fileName = photoPath.split('/').last;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -186,17 +164,9 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
               ),
               duration: const Duration(seconds: 3),
               backgroundColor: Colors.green,
-              action: SnackBarAction(
-                label: 'VIEW',
-                textColor: Colors.white,
-                onPressed: () {
-                  // TODO: Navigate to photo viewer
-                },
-              ),
             ),
           );
-        } else if (photoPath == '') {
-          // Snapshot successful but path not found (API worked but file list query failed)
+        } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Row(
@@ -208,23 +178,6 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
               ),
               duration: Duration(seconds: 2),
               backgroundColor: Colors.green,
-            ),
-          );
-        } else {
-          // Snapshot failed
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.error, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('Snapshot failed: ${_rtspService.errorMessage ?? "Unknown error"}'),
-                  ),
-                ],
-              ),
-              duration: const Duration(seconds: 3),
-              backgroundColor: Colors.red,
             ),
           );
         }
@@ -254,37 +207,8 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
     }
   }
 
-  Color _getStatusColor() {
-    switch (_rtspService.status) {
-      case StreamConnectionStatus.connected:
-        return Colors.green;
-      case StreamConnectionStatus.connecting:
-        return Colors.orange;
-      case StreamConnectionStatus.error:
-        return Colors.red;
-      case StreamConnectionStatus.disconnected:
-        return Colors.grey;
-    }
-  }
-
-  String _getStatusText() {
-    switch (_rtspService.status) {
-      case StreamConnectionStatus.connected:
-        return 'Connected';
-      case StreamConnectionStatus.connecting:
-        return 'Connecting...';
-      case StreamConnectionStatus.error:
-        return 'Error';
-      case StreamConnectionStatus.disconnected:
-        return 'Disconnected';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final connectionLog = _rtspService.connectionLog;
-    final serviceErrorMessage = _rtspService.errorMessage;
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -292,92 +216,10 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         actions: [
-          // Transport protocol selection
-          PopupMenuButton<RtspTransport>(
-            icon: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  _selectedTransport == RtspTransport.udp
-                      ? Icons.speed
-                      : Icons.wifi_protected_setup,
-                  size: 18,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  _selectedTransport.value.toUpperCase(),
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-            onSelected: (transport) {
-              _switchTransport(transport);
-            },
-            tooltip: 'Transport protocol',
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: RtspTransport.udp,
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.speed,
-                      color: _selectedTransport == RtspTransport.udp
-                          ? Colors.blue
-                          : Colors.grey,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('UDP (Low Latency)'),
-                        Text(
-                          'Lower latency, accepts packet loss',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: RtspTransport.tcp,
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.wifi_protected_setup,
-                      color: _selectedTransport == RtspTransport.tcp
-                          ? Colors.blue
-                          : Colors.grey,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('TCP (Reliable)'),
-                        Text(
-                          'Higher latency, error-free',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade400,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
           // Debug log toggle
           IconButton(
-            icon: Icon(_showDebugLog ? Icons.bug_report : Icons.bug_report_outlined),
+            icon: Icon(
+                _showDebugLog ? Icons.bug_report : Icons.bug_report_outlined),
             onPressed: () {
               setState(() {
                 _showDebugLog = !_showDebugLog;
@@ -414,102 +256,28 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
           Expanded(
             child: Stack(
               children: [
-                // Video widget
-                Center(
-                  child: _isLoading || _rtspService.player == null || _videoController == null
-                      ? const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'Connecting to dashcam...',
-                              style: TextStyle(color: Colors.white70),
-                            ),
-                          ],
-                        )
-                      : Video(
-                          controller: _videoController!,
-                          controls: NoVideoControls,
-                        ),
-                ),
-                // Error message overlay
-                if (_errorMessage != null)
-                  Container(
-                    color: Colors.black87,
-                    child: Center(
-                      child: SingleChildScrollView(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                color: Colors.red,
-                                size: 48,
-                              ),
-                              const SizedBox(height: 16),
-                              const Text(
-                                'Connection Error',
-                                style: TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              if (serviceErrorMessage != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: Text(
-                                    serviceErrorMessage,
-                                    style: const TextStyle(color: Colors.orange),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              Text(
-                                _errorMessage!,
-                                style: const TextStyle(color: Colors.white70),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 24),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ElevatedButton.icon(
-                                    onPressed: () => _reconnect(skipPrerequisites: false),
-                                    icon: const Icon(Icons.refresh),
-                                    label: const Text('Reconnect'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.blue.shade700,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  ElevatedButton.icon(
-                                    onPressed: () => _reconnect(skipPrerequisites: true),
-                                    icon: const Icon(Icons.skip_next),
-                                    label: const Text('Skip HTTP Check'),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.orange.shade700,
-                                      foregroundColor: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                // Native FFmpeg player via PlatformView
+                if (_dashcamController != null)
+                  DashcamPlayerWidget(
+                    controller: _dashcamController!,
+                    cameraIndex: _selectedCameraIndex,
+                  )
+                else
+                  const Center(
+                    child: CircularProgressIndicator(
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Colors.white),
                     ),
                   ),
+
+                // Flash overlay for snapshot feedback
+                if (_showFlash)
+                  Container(
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
+
                 // Stream info overlay (when connected)
-                if (_rtspService.status == StreamConnectionStatus.connected &&
-                    _errorMessage == null)
+                if (_latencyMs != null)
                   Positioned(
                     top: 16,
                     left: 16,
@@ -525,6 +293,21 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          const Icon(
+                            Icons.speed,
+                            color: Colors.greenAccent,
+                            size: 14,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '${_latencyMs}ms',
+                            style: const TextStyle(
+                              color: Colors.greenAccent,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           const Icon(
                             Icons.hd,
                             color: Colors.white70,
@@ -552,43 +335,19 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                               fontSize: 12,
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Icon(
-                            _selectedTransport == RtspTransport.udp
-                                ? Icons.speed
-                                : Icons.wifi_protected_setup,
-                            color: _selectedTransport == RtspTransport.udp
-                                ? Colors.green.shade400
-                                : Colors.orange.shade400,
-                            size: 14,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _selectedTransport.value.toUpperCase(),
-                            style: TextStyle(
-                              color: _selectedTransport == RtspTransport.udp
-                                  ? Colors.green.shade400
-                                  : Colors.orange.shade400,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
                         ],
                       ),
                     ),
                   ),
-                // Flash overlay for snapshot feedback
-                if (_showFlash)
-                  Container(
-                    color: Colors.white.withValues(alpha: 0.8),
-                  ),
+
                 // Debug log overlay
-                if (_showDebugLog && connectionLog.isNotEmpty)
+                if (_showDebugLog && _debugLog.isNotEmpty)
                   Positioned(
                     top: 16,
                     right: 16,
                     child: Container(
-                      constraints: const BoxConstraints(maxWidth: 400, maxHeight: 300),
+                      constraints:
+                          const BoxConstraints(maxWidth: 400, maxHeight: 300),
                       decoration: BoxDecoration(
                         color: Colors.black87,
                         borderRadius: BorderRadius.circular(8),
@@ -598,7 +357,8 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
                             decoration: BoxDecoration(
                               color: Colors.grey.shade900,
                               borderRadius: const BorderRadius.only(
@@ -608,11 +368,13 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.code, size: 16, color: Colors.white70),
+                                const Icon(Icons.code,
+                                    size: 16, color: Colors.white70),
                                 const SizedBox(width: 8),
                                 const Text(
                                   'Connection Log',
-                                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                                  style: TextStyle(
+                                      color: Colors.white70, fontSize: 12),
                                 ),
                                 const Spacer(),
                                 IconButton(
@@ -634,7 +396,7 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                               padding: const EdgeInsets.all(8),
                               child: SingleChildScrollView(
                                 child: Text(
-                                  connectionLog.join('\n'),
+                                  _debugLog.join('\n'),
                                   style: const TextStyle(
                                     color: Colors.green,
                                     fontSize: 10,
@@ -695,7 +457,7 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                 const SizedBox(height: 12),
                 // Reconnect button
                 OutlinedButton.icon(
-                  onPressed: () => _reconnect(skipPrerequisites: false),
+                  onPressed: _reconnect,
                   icon: const Icon(Icons.refresh, size: 18),
                   label: const Text('Reconnect'),
                   style: OutlinedButton.styleFrom(
@@ -708,7 +470,7 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
           ),
         ],
       ),
-      floatingActionButton: _rtspService.status == StreamConnectionStatus.connected
+      floatingActionButton: _latencyMs != null
           ? FloatingActionButton.extended(
               onPressed: _isTakingSnapshot ? null : _takeSnapshot,
               icon: _isTakingSnapshot
@@ -717,7 +479,8 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.black),
                       ),
                     )
                   : const Icon(Icons.camera_alt),
@@ -727,5 +490,19 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
             )
           : null,
     );
+  }
+
+  Color _getStatusColor() {
+    if (_latencyMs != null) return Colors.green;
+    if (_isLoading) return Colors.orange;
+    if (_errorMessage != null) return Colors.red;
+    return Colors.grey;
+  }
+
+  String _getStatusText() {
+    if (_latencyMs != null) return 'Connected';
+    if (_isLoading) return 'Connecting...';
+    if (_errorMessage != null) return 'Error';
+    return 'Disconnected';
   }
 }

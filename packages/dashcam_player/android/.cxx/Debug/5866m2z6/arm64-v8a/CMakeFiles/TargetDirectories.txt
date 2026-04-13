@@ -1,0 +1,3 @@
+/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/arm64-v8a/CMakeFiles/dashcamplayer.dir
+/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/arm64-v8a/CMakeFiles/edit_cache.dir
+/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/arm64-v8a/CMakeFiles/rebuild_cache.dir

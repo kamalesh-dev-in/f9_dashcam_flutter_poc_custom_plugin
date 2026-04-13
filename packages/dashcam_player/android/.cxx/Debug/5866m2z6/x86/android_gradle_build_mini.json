@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/src/main/cpp/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/kamalesh/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/kamalesh/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/packages/dashcam_player/android/.cxx/Debug/5866m2z6/x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "dashcamplayer::@6890427a1f51a3e7e1df": {
+      "artifactName": "dashcamplayer",
+      "abi": "x86",
+      "output": "/Users/kamalesh/workspace/flutter/kamalesh-flutter_f9_dashcam_poc/build/dashcam_player/intermediates/cxx/Debug/5866m2z6/obj/x86/libdashcamplayer.so",
+      "runtimeFiles": []
+    }
+  }
+}
