@@ -24,6 +24,7 @@ class DashcamNativePlayer(
     private var playerPtr: Long = 0
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var heartbeatJob: Job? = null
+    private var connectJob: Job? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var connectionStartTime: Long = 0
@@ -99,6 +100,7 @@ class DashcamNativePlayer(
      * Connect to dashcam and start streaming.
      *
      * Sequence: ping → enterRecorder → getMediaInfo → heartbeat → startLive → waitPort → RTSP
+     * Retries indefinitely until connected or cancelled.
      */
     suspend fun connect(cameraIndex: Int = DashcamConfig.CAMERA_FRONT): Boolean = withContext(Dispatchers.IO) {
         if (isReleased) {
@@ -121,123 +123,141 @@ class DashcamNativePlayer(
             return@withContext false
         }
 
-        try {
-            log("=== Starting FFmpeg connection (camera=$cameraIndex) ===")
-            sendStatus("Connecting to dashcam...")
+        var attemptNumber = 0
 
-            // Step 0: Verify network connectivity
-            log("Step 0: Verifying network connectivity...")
-            sendStatus("Verifying network...")
-            val isReachable = pingDashcam()
-            if (!isReachable) {
-                log("WARNING: Dashcam not reachable")
-                sendStatus("Dashcam not reachable - check WiFi")
-            } else {
-                log("Dashcam is reachable")
-            }
+        while (!isReleased && isActive) {
+            attemptNumber++
+            val verbose = attemptNumber <= 3 || attemptNumber % 5 == 0
 
-            // Step 1: Enter recorder mode
-            log("Step 1: Enter recorder mode...")
-            sendStatus("Entering recorder mode...")
-            enterRecorderMode()
+            try {
+                if (verbose) {
+                    log("=== Connection attempt $attemptNumber ===")
+                }
+                sendStatus("Connecting... (attempt $attemptNumber)")
 
-            // Step 2: Get media info
-            log("Step 2: Get media info...")
-            sendStatus("Getting media info...")
-            getMediaInfo()
+                // Step 0: Verify network connectivity
+                if (verbose) log("Step 0: Verifying network connectivity...")
+                val isReachable = pingDashcam()
+                if (!isReachable && verbose) {
+                    log("WARNING: Dashcam not reachable")
+                }
 
-            // Step 3: Start heartbeat BEFORE RTSP
-            log("Step 3: Starting heartbeat...")
-            startHeartbeat()
+                if (!isActive || isReleased) break
 
-            // Step 4: Start live preview (ACTIVATES the stream)
-            log("Step 4: Start live preview - ACTIVATING STREAM...")
-            sendStatus("Activating stream...")
-            val liveStarted = startLivePreview(cameraIndex)
-            if (!liveStarted) {
-                log("WARNING: Start live preview failed, continuing anyway...")
-            }
+                // Step 1: Enter recorder mode
+                if (verbose) log("Step 1: Enter recorder mode...")
+                enterRecorderMode()
 
-            // Step 5: Wait for RTSP port
-            log("Step 5: Waiting for RTSP port...")
-            sendStatus("Waiting for stream activation...")
-            val isPortReady = waitForRtspPort(timeoutMs = 5000)
-            if (!isPortReady) {
-                log("WARNING: RTSP port not responding, trying anyway...")
-                sendStatus("Stream slow to activate, attempting connection...")
-            }
+                // Step 2: Get media info
+                if (verbose) log("Step 2: Get media info...")
+                getMediaInfo()
 
-            // Step 6: Verify native FFmpeg loaded
-            log("Step 6: Verifying native FFmpeg...")
-            if (playerPtr == 0L) {
-                log("ERROR: Native player pointer is NULL")
-                stopHeartbeat()
-                sendError("Player not initialized - wait for surface")
-                return@withContext false
-            }
+                if (!isActive || isReleased) break
 
-            val testResult = nativePlayer.nativeTest()
-            log("Native FFmpeg test: $testResult")
-            if (!testResult.contains("working")) {
-                log("ERROR: FFmpeg in STUB mode!")
-                stopHeartbeat()
-                sendError("FFmpeg libraries not loaded")
-                return@withContext false
-            }
+                // Step 3: Start heartbeat BEFORE RTSP
+                if (verbose) log("Step 3: Starting heartbeat...")
+                startHeartbeat()
 
-            // Step 7: Connect via FFmpeg RTSP
-            log("Step 7: Opening RTSP stream...")
-            sendStatus("Opening RTSP stream...")
-            connectionStartTime = System.currentTimeMillis()
+                // Step 4: Start live preview (ACTIVATES the stream)
+                if (verbose) log("Step 4: Start live preview - ACTIVATING STREAM...")
+                sendStatus("Activating stream...")
+                val liveStarted = startLivePreview(cameraIndex)
+                if (!liveStarted && verbose) {
+                    log("WARNING: Start live preview failed, continuing anyway...")
+                }
 
-            val maxRetries = 3
-            var connected = false
-            for (attempt in 1..maxRetries) {
-                log("RTSP attempt $attempt/$maxRetries")
-                connected = nativePlayer.nativeConnect(playerPtr, DashcamConfig.RTSP_URL)
+                // Step 5: Wait for RTSP port
+                if (verbose) log("Step 5: Waiting for RTSP port...")
+                val isPortReady = waitForRtspPort(timeoutMs = 5000)
+                if (!isPortReady && verbose) {
+                    log("WARNING: RTSP port not responding, trying anyway...")
+                }
+
+                if (!isActive || isReleased) break
+
+                // Step 6: Verify native FFmpeg loaded
+                if (playerPtr == 0L) {
+                    log("ERROR: Native player pointer is NULL")
+                    stopHeartbeat()
+                    sendError("Player not initialized - wait for surface")
+                    return@withContext false
+                }
+
+                if (attemptNumber == 1) {
+                    val testResult = nativePlayer.nativeTest()
+                    log("Native FFmpeg test: $testResult")
+                    if (!testResult.contains("working")) {
+                        log("ERROR: FFmpeg in STUB mode!")
+                        stopHeartbeat()
+                        sendError("FFmpeg libraries not loaded")
+                        return@withContext false
+                    }
+                }
+
+                if (!isActive || isReleased) break
+
+                // Step 7: Connect via FFmpeg RTSP (inner 3-retry)
+                if (verbose) log("Step 7: Opening RTSP stream...")
+                sendStatus("Opening RTSP stream...")
+                connectionStartTime = System.currentTimeMillis()
+
+                var connected = false
+                for (rtspAttempt in 1..3) {
+                    if (!isActive || isReleased) break
+                    if (verbose) log("RTSP attempt $rtspAttempt/3")
+                    connected = nativePlayer.nativeConnect(playerPtr, DashcamConfig.RTSP_URL)
+                    if (connected) {
+                        log("RTSP connected on attempt $rtspAttempt")
+                        break
+                    }
+                    if (rtspAttempt < 3) {
+                        delay(1000)
+                    }
+                }
+
                 if (connected) {
-                    log("RTSP connected on attempt $attempt")
-                    break
-                }
-                if (attempt < maxRetries) {
-                    log("RTSP failed, retrying in 1s...")
-                    delay(1000)
-                }
-            }
+                    // Start playback
+                    log("Starting FFmpeg playback...")
+                    nativePlayer.nativeStart(playerPtr)
+                    log("FFmpeg playback started")
 
-            if (!connected) {
-                log("ERROR: RTSP failed after $maxRetries attempts")
+                    sendStatus("Playing")
+
+                    if (!hasVideoRenderingStarted) {
+                        hasVideoRenderingStarted = true
+                        val latency = System.currentTimeMillis() - connectionStartTime
+                        log("VIDEO STREAMING! Latency: ${latency}ms")
+                        mainHandler.post {
+                            plugin.sendEvent("videoRenderingStarted", mapOf("latencyMs" to latency.toInt()))
+                        }
+                    }
+
+                    log("=== FFmpeg connection successful on attempt $attemptNumber ===")
+                    return@withContext true
+                }
+
+                // Failed — stop heartbeat before retry
                 stopHeartbeat()
-                sendError("RTSP connection failed")
-                return@withContext false
+
+            } catch (e: CancellationException) {
+                log("Connection cancelled")
+                stopHeartbeat()
+                throw e
+            } catch (e: Exception) {
+                log("Attempt $attemptNumber failed: ${e.javaClass.simpleName} - ${e.message}")
+                stopHeartbeat()
             }
 
-            // Start playback
-            log("Starting FFmpeg playback...")
-            nativePlayer.nativeStart(playerPtr)
-            log("FFmpeg playback started")
-
-            sendStatus("Playing")
-
-            if (!hasVideoRenderingStarted) {
-                hasVideoRenderingStarted = true
-                val latency = System.currentTimeMillis() - connectionStartTime
-                log("VIDEO STREAMING! Latency: ${latency}ms")
-                mainHandler.post {
-                    plugin.sendEvent("videoRenderingStarted", mapOf("latencyMs" to latency.toInt()))
-                }
+            // Wait before next full attempt
+            if (!isReleased && isActive) {
+                log("Attempt $attemptNumber failed, retrying in 3s...")
+                sendStatus("Retrying in 3s... (attempt $attemptNumber)")
+                delay(3000)
             }
-
-            log("=== FFmpeg connection successful ===")
-            true
-
-        } catch (e: Exception) {
-            val errorMsg = "Connection failed: ${e.javaClass.simpleName} - ${e.message}"
-            log("ERROR: $errorMsg")
-            stopHeartbeat()
-            sendError(errorMsg)
-            false
         }
+
+        log("Connection loop stopped")
+        false
     }
 
     /**
@@ -285,20 +305,20 @@ class DashcamNativePlayer(
                 log("WARNING: RTSP port not ready after camera switch, trying anyway")
             }
 
-            // Reconnect RTSP with retries
-            val maxRetries = 3
+            // Reconnect RTSP with infinite retry
+            var rtspAttempt = 0
             var connected = false
-            for (attempt in 1..maxRetries) {
-                log("Camera reconnect attempt $attempt/$maxRetries")
+            while (!isReleased && isActive) {
+                rtspAttempt++
+                log("Camera reconnect attempt $rtspAttempt")
+                sendStatus("Reconnecting camera... (attempt $rtspAttempt)")
                 connected = nativePlayer.nativeConnect(playerPtr, DashcamConfig.RTSP_URL)
                 if (connected) {
-                    log("Camera reconnect succeeded on attempt $attempt")
+                    log("Camera reconnect succeeded on attempt $rtspAttempt")
                     break
                 }
-                if (attempt < maxRetries) {
-                    log("Camera reconnect failed, retrying in 1s...")
-                    delay(1000)
-                }
+                log("Camera reconnect failed, retrying in 3s...")
+                delay(3000)
             }
 
             if (connected) {
@@ -306,8 +326,8 @@ class DashcamNativePlayer(
                 sendStatus("Camera $camera active")
                 log("Camera switch complete: camera $camera playing")
             } else {
-                log("ERROR: Camera switch failed — could not reconnect RTSP")
-                sendError("Camera switch failed — stream disconnected")
+                log("Camera switch cancelled")
+                sendError("Camera switch cancelled")
             }
             connected
 
@@ -325,6 +345,7 @@ class DashcamNativePlayer(
         try {
             if (!isReleased && playerPtr != 0L) {
                 log("Stopping FFmpeg playback")
+                connectJob?.cancel()
                 stopHeartbeat()
                 nativePlayer.nativeStop(playerPtr)
             }
@@ -340,6 +361,7 @@ class DashcamNativePlayer(
         try {
             log("Releasing FFmpeg player")
             isReleased = true
+            connectJob?.cancel()
             stopHeartbeat()
             // Cancel pending surface wait if any
             surfaceReady.cancel()

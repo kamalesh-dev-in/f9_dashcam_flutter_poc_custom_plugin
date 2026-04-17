@@ -456,15 +456,15 @@ class _LiveStreamScreenState extends State<LiveStreamScreen> {
                 ),
                 const SizedBox(height: 12),
                 // Reconnect button
-                OutlinedButton.icon(
-                  onPressed: _reconnect,
-                  icon: const Icon(Icons.refresh, size: 18),
-                  label: const Text('Reconnect'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: BorderSide(color: Colors.grey.shade700),
-                  ),
-                ),
+                // OutlinedButton.icon(
+                //   onPressed: _reconnect,
+                //   icon: const Icon(Icons.refresh, size: 18),
+                //   label: const Text('Reconnect'),
+                //   style: OutlinedButton.styleFrom(
+                //     foregroundColor: Colors.white70,
+                //     side: BorderSide(color: Colors.grey.shade700),
+                //   ),
+                // ),
               ],
             ),
           ),

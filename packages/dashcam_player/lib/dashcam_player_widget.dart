@@ -5,7 +5,7 @@ import 'dashcam_player_controller.dart';
 
 /// Widget that displays the dashcam live stream using a native SurfaceView.
 ///
-/// Uses Android PlatformView for direct surface rendering,
+/// Uses PlatformView for direct surface rendering,
 /// bypassing Flutter's rendering pipeline for minimal latency.
 class DashcamPlayerWidget extends StatefulWidget {
   final DashcamPlayerController controller;
@@ -24,28 +24,34 @@ class DashcamPlayerWidget extends StatefulWidget {
 class _DashcamPlayerWidgetState extends State<DashcamPlayerWidget> {
   bool _isConnecting = false;
   String? _error;
+  String? _statusMessage;
 
   @override
   void initState() {
     super.initState();
-    _listenToErrors();
+    _listenToEvents();
   }
 
-  void _listenToErrors() {
+  void _listenToEvents() {
     widget.controller.onError.listen((error) {
       if (mounted) {
         setState(() {
           _error = error;
           _isConnecting = false;
+          _statusMessage = null;
         });
       }
     });
 
     widget.controller.onStatusChanged.listen((status) {
-      if (mounted && status == 'Playing') {
+      if (mounted) {
         setState(() {
-          _isConnecting = false;
-          _error = null;
+          _statusMessage = status;
+          if (status == 'Playing') {
+            _isConnecting = false;
+            _error = null;
+            _statusMessage = null;
+          }
         });
       }
     });
@@ -57,6 +63,7 @@ class _DashcamPlayerWidgetState extends State<DashcamPlayerWidget> {
     setState(() {
       _isConnecting = true;
       _error = null;
+      _statusMessage = null;
     });
 
     try {
@@ -80,13 +87,57 @@ class _DashcamPlayerWidgetState extends State<DashcamPlayerWidget> {
     }
   }
 
+  Future<void> _reconnect() async {
+    if (widget.controller.isDisposed) return;
+
+    setState(() {
+      _isConnecting = true;
+      _error = null;
+      _statusMessage = null;
+    });
+
+    try {
+      final success = await widget.controller.reconnect(
+        cameraIndex: widget.cameraIndex,
+      );
+      if (!success && mounted) {
+        setState(() {
+          _error = 'Connection failed';
+          _isConnecting = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _isConnecting = false;
+        });
+      }
+    }
+  }
+
+  void _cancelConnection() {
+    widget.controller.disconnect();
+    setState(() {
+      _isConnecting = false;
+      _error = 'Connection cancelled';
+      _statusMessage = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Native SurfaceView via PlatformView
+        // Native view via PlatformView (Android: SurfaceView, iOS: MTKView)
         if (defaultTargetPlatform == TargetPlatform.android)
           AndroidView(
+            viewType: 'dashcam_player_view',
+            creationParamsCodec: const StandardMessageCodec(),
+            onPlatformViewCreated: _connect,
+          )
+        else if (defaultTargetPlatform == TargetPlatform.iOS)
+          UiKitView(
             viewType: 'dashcam_player_view',
             creationParamsCodec: const StandardMessageCodec(),
             onPlatformViewCreated: _connect,
@@ -99,28 +150,37 @@ class _DashcamPlayerWidgetState extends State<DashcamPlayerWidget> {
             ),
           ),
 
-        // Loading overlay
+        // Loading overlay with status and cancel
         if (_isConnecting)
           Container(
             color: Colors.black54,
-            child: const Center(
+            child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircularProgressIndicator(
+                  const CircularProgressIndicator(
                     valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                   ),
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Text(
-                    'Connecting to dashcam...',
-                    style: TextStyle(color: Colors.white70),
+                    _statusMessage ?? 'Connecting to dashcam...',
+                    style: const TextStyle(color: Colors.white70),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  TextButton(
+                    onPressed: _cancelConnection,
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Colors.white54),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
 
-        // Error overlay
+        // Error overlay with reconnect button
         if (_error != null && !_isConnecting)
           Container(
             color: Colors.black87,
@@ -136,6 +196,16 @@ class _DashcamPlayerWidgetState extends State<DashcamPlayerWidget> {
                       _error!,
                       style: const TextStyle(color: Colors.white70),
                       textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton.icon(
+                      onPressed: _reconnect,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Reconnect'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white24,
+                        foregroundColor: Colors.white,
+                      ),
                     ),
                   ],
                 ),

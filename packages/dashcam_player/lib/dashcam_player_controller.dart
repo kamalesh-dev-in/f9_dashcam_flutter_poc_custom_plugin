@@ -90,6 +90,14 @@ class DashcamPlayerController {
     });
   }
 
+  /// Reconnect to the dashcam. Disconnects current stream and starts fresh.
+  Future<bool> reconnect({int cameraIndex = 0}) async {
+    if (_playerId == null || _isDisposed) return false;
+    await disconnect();
+    await Future.delayed(const Duration(milliseconds: 500));
+    return await connect(cameraIndex: cameraIndex);
+  }
+
   /// Switch camera on the dashcam.
   /// [cameraIndex]: 0=Front, 1=Rear, 2=PiP
   Future<bool> switchCamera(int cameraIndex) async {
