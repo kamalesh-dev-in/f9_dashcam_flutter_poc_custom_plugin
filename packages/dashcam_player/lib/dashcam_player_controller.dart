@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/services.dart';
+import 'dashcam_config.dart';
 
 /// Controller for the dashcam native FFmpeg player.
 ///
@@ -12,6 +13,7 @@ class DashcamPlayerController {
 
   int? _playerId;
   bool _isDisposed = false;
+  final DashcamConfig _config;
 
   // Stream controllers for public API
   final _statusController = StreamController<String>.broadcast();
@@ -34,7 +36,11 @@ class DashcamPlayerController {
   /// Whether the controller has been disposed
   bool get isDisposed => _isDisposed;
 
-  DashcamPlayerController() {
+  /// The effective config being used (overrides + F9 defaults)
+  DashcamConfig get config => _config;
+
+  DashcamPlayerController({DashcamConfig? config})
+      : _config = config ?? const DashcamConfig() {
     _listenToEvents();
   }
 
@@ -66,6 +72,7 @@ class DashcamPlayerController {
   Future<int> create(int viewId) async {
     _playerId = await _channel.invokeMethod<int>('create', {
       'viewId': viewId,
+      'config': _config.toMap(),
     });
     return _playerId!;
   }

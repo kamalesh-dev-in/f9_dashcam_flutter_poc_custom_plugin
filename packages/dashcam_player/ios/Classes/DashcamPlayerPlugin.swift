@@ -64,10 +64,14 @@ public class DashcamPlayerPlugin: NSObject, FlutterPlugin {
             return
         }
 
+        // Extract optional config dictionary from Dart
+        let configDict = args["config"] as? [String: Any]
+        let config = DashcamConfig(dict: configDict)
+
         let playerId = nextPlayerId
         nextPlayerId += 1
 
-        let player = DashcamNativePlayer(playerId: playerId, plugin: self)
+        let player = DashcamNativePlayer(playerId: playerId, plugin: self, config: config)
         player.setMetalView(platformView.getMetalView(), platformView: platformView)
         playerRegistry[playerId] = player
 

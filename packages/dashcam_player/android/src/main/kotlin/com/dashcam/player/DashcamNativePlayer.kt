@@ -18,7 +18,8 @@ import java.net.URL
  */
 class DashcamNativePlayer(
     private val playerId: Int,
-    private val plugin: DashcamPlayerPlugin
+    private val plugin: DashcamPlayerPlugin,
+    private val config: DashcamConfig
 ) {
     private val nativePlayer = NativeFFmpegPlayer()
     private var playerPtr: Long = 0
@@ -205,7 +206,7 @@ class DashcamNativePlayer(
                 for (rtspAttempt in 1..3) {
                     if (!isActive || isReleased) break
                     if (verbose) log("RTSP attempt $rtspAttempt/3")
-                    connected = nativePlayer.nativeConnect(playerPtr, DashcamConfig.RTSP_URL)
+                    connected = nativePlayer.nativeConnect(playerPtr, config.rtspUrl)
                     if (connected) {
                         log("RTSP connected on attempt $rtspAttempt")
                         break
@@ -277,14 +278,14 @@ class DashcamNativePlayer(
             }
 
             // Call HTTP API to switch camera on the dashcam
-            val url = URL("${DashcamConfig.API_SWITCH_CAMERA}$camera")
+            val url = URL("${config.apiSwitchCamera}$camera")
             log("Camera switch API: $url")
             val switchOk = try {
                 with(url.openConnection() as HttpURLConnection) {
                     requestMethod = "GET"
                     connectTimeout = 2000
                     readTimeout = 2000
-                    setRequestProperty("User-Agent", DashcamConfig.USER_AGENT)
+                    setRequestProperty("User-Agent", config.userAgent)
                     val code = responseCode
                     log("Camera switch API response: HTTP $code")
                     code == 200
@@ -312,7 +313,7 @@ class DashcamNativePlayer(
                 rtspAttempt++
                 log("Camera reconnect attempt $rtspAttempt")
                 sendStatus("Reconnecting camera... (attempt $rtspAttempt)")
-                connected = nativePlayer.nativeConnect(playerPtr, DashcamConfig.RTSP_URL)
+                connected = nativePlayer.nativeConnect(playerPtr, config.rtspUrl)
                 if (connected) {
                     log("Camera reconnect succeeded on attempt $rtspAttempt")
                     break
@@ -379,7 +380,7 @@ class DashcamNativePlayer(
 
     private suspend fun pingDashcam(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL(DashcamConfig.API_HEARTBEAT)
+            val url = URL(config.apiHeartbeat)
             log("Ping: $url")
             with(url.openConnection() as HttpURLConnection) {
                 requestMethod = "GET"
@@ -397,13 +398,13 @@ class DashcamNativePlayer(
 
     private suspend fun enterRecorderMode(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL(DashcamConfig.API_ENTER_RECORDER)
+            val url = URL(config.apiEnterRecorder)
             log("EnterRecorder: $url")
             with(url.openConnection() as HttpURLConnection) {
                 requestMethod = "GET"
                 connectTimeout = 2000
                 readTimeout = 2000
-                setRequestProperty("User-Agent", DashcamConfig.USER_AGENT)
+                setRequestProperty("User-Agent", config.userAgent)
                 val code = responseCode
                 log("EnterRecorder response: HTTP $code")
                 code == 200
@@ -416,13 +417,13 @@ class DashcamNativePlayer(
 
     private suspend fun getMediaInfo(): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL(DashcamConfig.API_GET_MEDIA_INFO)
+            val url = URL(config.apiGetMediaInfo)
             log("GetMediaInfo: $url")
             with(url.openConnection() as HttpURLConnection) {
                 requestMethod = "GET"
                 connectTimeout = 2000
                 readTimeout = 2000
-                setRequestProperty("User-Agent", DashcamConfig.USER_AGENT)
+                setRequestProperty("User-Agent", config.userAgent)
                 val code = responseCode
                 log("GetMediaInfo response: HTTP $code")
                 code == 200
@@ -435,13 +436,13 @@ class DashcamNativePlayer(
 
     private suspend fun startLivePreview(camIndex: Int = 0): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL("${DashcamConfig.API_START_LIVE}$camIndex")
+            val url = URL("${config.apiStartLive}$camIndex")
             log("StartLive: $url")
             with(url.openConnection() as HttpURLConnection) {
                 requestMethod = "GET"
                 connectTimeout = 2000
                 readTimeout = 2000
-                setRequestProperty("User-Agent", DashcamConfig.USER_AGENT)
+                setRequestProperty("User-Agent", config.userAgent)
                 val code = responseCode
                 log("StartLive response: HTTP $code")
                 code == 200
@@ -459,7 +460,7 @@ class DashcamNativePlayer(
             attempts++
             try {
                 val socket = java.net.Socket()
-                socket.connect(java.net.InetSocketAddress(DashcamConfig.DASHCAM_IP, DashcamConfig.RTSP_PORT), 500)
+                socket.connect(java.net.InetSocketAddress(config.ip, config.rtspPort), 500)
                 socket.close()
                 log("RTSP port ready after $attempts attempts")
                 return@withContext true
@@ -477,7 +478,7 @@ class DashcamNativePlayer(
             while (isActive && !isReleased) {
                 delay(5000)
                 try {
-                    val url = URL(DashcamConfig.API_HEARTBEAT)
+                    val url = URL(config.apiHeartbeat)
                     with(url.openConnection() as HttpURLConnection) {
                         requestMethod = "GET"
                         connectTimeout = 2000

@@ -14,6 +14,8 @@
 10. [Obj-C++ Bridge Deep Dive](#10-obj-c-bridge-deep-dive)
 11. [PlatformView Deep Dive](#11-platformview-deep-dive)
 12. [Android vs iOS Comparison](#12-android-vs-ios-comparison)
+13. [Developer Config Guide — Using With Different Dashcams](#13-developer-config-guide--using-with-different-dashcams)
+14. [Session History](#14-session-history)
 
 ---
 
@@ -1153,3 +1155,241 @@ The `ffmpeg_player.cpp` file is nearly identical on both platforms:
 - Same pthread-based background threading
 - Same mutex synchronization
 - Only difference: renderer type (SurfaceRenderer vs MetalRenderer)
+
+---
+
+## 13. Developer Config Guide — Using With Different Dashcams
+
+All config fields are optional. Override only what you need — everything else falls back to F9 dashcam defaults.
+
+### Configurable Fields
+
+| Field | Type | F9 Default | Description |
+|-------|------|-----------|-------------|
+| `ip` | `String?` | `192.168.169.1` | Dashcam IP address |
+| `rtspPort` | `int?` | `554` | RTSP port |
+| `httpPort` | `int?` | `80` | HTTP port |
+| `userAgent` | `String?` | `HiCamera` | User-Agent header for HTTP requests |
+| `heartbeatEndpoint` | `String?` | `http://{ip}:{port}/app/getparamvalue?param=rec` | Full heartbeat URL |
+| `enterRecorderEndpoint` | `String?` | `http://{ip}:{port}/app/enterrecorder` | Full enter-recorder URL |
+| `getMediaInfoEndpoint` | `String?` | `http://{ip}:{port}/app/getmediainfo` | Full get-media-info URL |
+| `startLiveEndpoint` | `String?` | `http://{ip}:{port}/?custom=1&cmd=2015&par=` | Full start-live URL (camera index appended) |
+| `switchCameraEndpoint` | `String?` | `http://{ip}:{port}/app/setparamvalue?param=switchcam&value=` | Full switch-camera URL (camera index appended) |
+| `rtspUrl` | `String?` | `rtsp://{ip}:{rtspPort}/` | Full RTSP stream URL |
+
+### Example 1: F9 Dashcam (Default — No Config Needed)
+
+```dart
+// Works out of the box, all F9 defaults applied
+final controller = DashcamPlayerController();
+
+DashcamPlayerWidget(
+  controller: controller,
+  cameraIndex: 0,
+)
+```
+
+### Example 2: F9 Dashcam on a Different IP
+
+```dart
+// Only override the IP, everything else stays F9 default
+final controller = DashcamPlayerController(
+  config: DashcamConfig(
+    ip: '192.168.1.1',
+    rtspPort: 8554,
+  ),
+);
+```
+
+### Example 3: Partial Endpoint Override
+
+```dart
+// Same F9 dashcam but custom heartbeat endpoint
+// All other endpoints use F9 defaults built from ip + httpPort
+final controller = DashcamPlayerController(
+  config: DashcamConfig(
+    heartbeatEndpoint: 'http://192.168.169.1:80/api/keepalive',
+  ),
+);
+```
+
+### Example 4: Completely Different Dashcam Brand
+
+```dart
+// Full custom config for a non-F9 dashcam
+final controller = DashcamPlayerController(
+  config: DashcamConfig(
+    // Network
+    ip: '192.168.0.100',
+    rtspPort: 8554,
+    httpPort: 8080,
+    userAgent: 'ViofoCam',
+
+    // All HTTP API endpoints
+    heartbeatEndpoint: 'http://192.168.0.100:8080/cgi-bin/heartbeat',
+    enterRecorderEndpoint: 'http://192.168.0.100:8080/cgi-bin/record/start',
+    getMediaInfoEndpoint: 'http://192.168.0.100:8080/cgi-bin/media',
+    startLiveEndpoint: 'http://192.168.0.100:8080/cgi-bin/live?channel=',
+    switchCameraEndpoint: 'http://192.168.0.100:8080/cgi-bin/switch?cam=',
+
+    // RTSP stream URL
+    rtspUrl: 'rtsp://192.168.0.100:8554/live',
+  ),
+);
+
+DashcamPlayerWidget(
+  controller: controller,
+  cameraIndex: 0,
+)
+```
+
+### Example 5: Widget Factory Shortcut
+
+```dart
+// Widget creates the controller internally with your config
+DashcamPlayerWidget.withConfig(
+  config: DashcamConfig(
+    ip: '10.0.0.50',
+    rtspPort: 554,
+  ),
+  cameraIndex: 0,
+)
+```
+
+### Example 6: Full App Integration
+
+```dart
+import 'package:dashcam_player/dashcam_player.dart';
+
+class MyDashcamScreen extends StatefulWidget {
+  @override
+  State<MyDashcamScreen> createState() => _MyDashcamScreenState();
+}
+
+class _MyDashcamScreenState extends State<MyDashcamScreen> {
+  late DashcamPlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Configure for your dashcam
+    _controller = DashcamPlayerController(
+      config: DashcamConfig(
+        ip: '192.168.0.100',
+        rtspPort: 8554,
+        switchCameraEndpoint: 'http://192.168.0.100/cgi-bin/switch?ch=',
+      ),
+    );
+
+    // Listen to events
+    _controller.onStatusChanged.listen((status) {
+      print('Status: $status');
+    });
+    _controller.onError.listen((error) {
+      print('Error: $error');
+    });
+    _controller.onLatencyMeasured.listen((latencyMs) {
+      print('Latency: ${latencyMs}ms');
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: DashcamPlayerWidget(
+        controller: _controller,
+        cameraIndex: 0,
+      ),
+      bottomNavigationBar: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          TextButton(
+            onPressed: () => _controller.switchCamera(0),
+            child: Text('Front'),
+          ),
+          TextButton(
+            onPressed: () => _controller.switchCamera(1),
+            child: Text('Rear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
+```
+
+### How the Override Flow Works
+
+```
+Developer's App Code
+  │
+  ▼
+DashcamConfig(
+  ip: '10.0.0.1',                              ← override
+  heartbeatEndpoint: 'http://10.0.0.1/api/ping' ← override
+  // everything else: null                       ← will use F9 default
+)
+  │
+  ▼  controller.create(viewId) via MethodChannel
+  │  sends: { "config": { "ip": "10.0.0.1", "heartbeatEndpoint": "http://10.0.0.1/api/ping" } }
+  │
+  ▼  Native side (DashcamConfig.kt / .swift)
+  │  ip = "10.0.0.1"                    ← from map
+  │  heartbeatEndpoint = provided URL   ← from map
+  │  enterRecorderEndpoint = "http://10.0.0.1:80/app/enterrecorder"  ← built from ip + F9 default path
+  │  rtspUrl = "rtsp://10.0.0.1:554/"   ← built from ip + F9 default port
+  │
+  ▼  Player uses config.ip, config.apiHeartbeat, config.rtspUrl, etc.
+```
+
+---
+
+## 14. Session History
+
+### Session 1 — 15.04.2026
+
+**Focus: Plugin exploration & architecture understanding**
+
+- Explored the overall purpose of the custom `dashcam_player` plugin
+- Documented the 3-layer architecture (Dart → Native → C++ FFmpeg)
+- Deep dived into the **connection protocol** — the 7-step HTTP sequence for F9 dashcam
+- Deep dived into the **FFmpeg decoding pipeline** — RTSP flags, decode loop, YUV→RGB conversion, threading model
+- Deep dived into **native rendering** — Android ANativeWindow + iOS Metal rendering
+- Deep dived into the **Flutter ↔ Native bridge** — MethodChannel, EventChannel, PlatformView
+- Documented all **Android implementation** files (10+ files: Kotlin, C++, CMake)
+- Created the initial `docs/dashcam-player-plugin-guide.md`
+
+### Session 2 — 16.04.2026
+
+**Focus: iOS deep dives**
+
+- Documented all **iOS implementation** files (10+ files: Swift, Obj-C++, C++, Ruby podspec)
+- Deep dived into the **Obj-C++ bridge** (`DashcamNativeBridge.h/.mm`) — why it exists, pointer wrapping, `(__bridge void*)`, the three-language sandwich
+- Deep dived into the **iOS native player** (`DashcamNativePlayer.swift`) — semaphore-based HTTP, Timer heartbeat, BSD socket TCP probe, cancellation model
+- Deep dived into the **iOS PlatformView** (`DashcamPlatformView.swift`) — MTKView lifecycle, MTKViewDelegate, static registry, display-synced rendering
+
+### Session 3 — 17.04.2026
+
+**Focus: Configurable plugin + documentation**
+
+- Made the plugin configurable — developers can now use any dashcam, not just F9
+  - Created `lib/dashcam_config.dart` — Dart config class with optional fields and F9 defaults
+  - Updated `DashcamPlayerController` to accept and pass config via MethodChannel
+  - Updated `DashcamPlayerWidget` with `withConfig()` factory
+  - Updated Android `DashcamConfig.kt` — class with F9 defaults + map-based overrides
+  - Updated Android `DashcamPlayerPlugin.kt` — extracts config from create call
+  - Updated Android `DashcamNativePlayer.kt` — uses config instance instead of static constants
+  - Updated iOS `DashcamConfig.swift` — class with F9 defaults + dict-based overrides
+  - Updated iOS `DashcamPlayerPlugin.swift` — extracts config from create call
+  - Updated iOS `DashcamNativePlayer.swift` — uses config instance instead of static constants
+- Added configurable API endpoints (heartbeat, enterRecorder, getMediaInfo, startLive, switchCamera, rtspUrl)
+- Generated **pipeline flow diagram** using `/ylt-flow-chart` and added as Section 1
+- Added **Developer Config Guide** (Section 13) with 6 usage examples
+- Added **session history** (this section)

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dashcam_config.dart';
 import 'dashcam_player_controller.dart';
 
 /// Widget that displays the dashcam live stream using a native SurfaceView.
@@ -16,6 +17,19 @@ class DashcamPlayerWidget extends StatefulWidget {
     required this.controller,
     this.cameraIndex = 0,
   });
+
+  /// Convenience constructor that creates a controller with optional config.
+  factory DashcamPlayerWidget.withConfig({
+    Key? key,
+    DashcamConfig? config,
+    int cameraIndex = 0,
+  }) {
+    return DashcamPlayerWidget(
+      key: key,
+      controller: DashcamPlayerController(config: config),
+      cameraIndex: cameraIndex,
+    );
+  }
 
   @override
   State<DashcamPlayerWidget> createState() => _DashcamPlayerWidgetState();

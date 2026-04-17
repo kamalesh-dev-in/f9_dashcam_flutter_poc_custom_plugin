@@ -90,8 +90,13 @@ class DashcamPlayerPlugin : FlutterPlugin, MethodCallHandler {
             return
         }
 
+        // Extract optional config map from Dart
+        @Suppress("UNCHECKED_CAST")
+        val configMap = call.argument<Map<String, Any>>("config")
+        val config = DashcamConfig(configMap)
+
         val playerId = nextPlayerId++
-        val player = DashcamNativePlayer(playerId, this)
+        val player = DashcamNativePlayer(playerId, this, config)
         player.setSurfaceView(platformView.getSurfaceView())
         playerRegistry[playerId] = player
 

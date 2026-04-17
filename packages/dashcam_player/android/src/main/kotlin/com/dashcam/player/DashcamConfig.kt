@@ -1,52 +1,54 @@
 package com.dashcam.player
 
 /**
- * Configuration for F9 Dashcam RTSP streaming.
+ * Configuration for dashcam RTSP streaming.
  *
- * Based on learnings from native Android POC:
- * - Dashcam ignores URL paths and query parameters completely
- * - Single RTSP URL for all cameras: rtsp://192.168.169.1:554/ (plain URL)
- * - Camera switching via HTTP API: /app/setparamvalue?param=switchcam&value={0|1|2}
- * - Dashcam forces TCP transport (UDP attempts failed)
- * - Must call /app/enterrecorder before live stream
+ * Supports developer overrides with F9 dashcam defaults as fallback.
+ * All endpoints can be overridden individually — if not provided,
+ * they're built from F9 default paths + the effective base URL.
  */
-object DashcamConfig {
+class DashcamConfig(map: Map<String, Any>? = null) {
 
-    // Network configuration
-    const val DASHCAM_IP = "192.168.169.1"
-    const val RTSP_PORT = 554
-    const val HTTP_PORT = 80
+    companion object {
+        // F9 Dashcam defaults
+        const val DEFAULT_IP = "192.168.169.1"
+        const val DEFAULT_RTSP_PORT = 554
+        const val DEFAULT_HTTP_PORT = 80
+        const val DEFAULT_USER_AGENT = "HiCamera"
 
-    // RTSP URL - Use plain URL (F9 dashcam format)
-    private const val RTSP_URL_BASE = "rtsp://$DASHCAM_IP:$RTSP_PORT"
-    const val RTSP_URL_PLAIN = "$RTSP_URL_BASE/"
-    const val RTSP_URL = RTSP_URL_PLAIN
+        // F9 default endpoint paths
+        const val DEFAULT_HEARTBEAT_PATH = "/app/getparamvalue?param=rec"
+        const val DEFAULT_ENTER_RECORDER_PATH = "/app/enterrecorder"
+        const val DEFAULT_GET_MEDIA_INFO_PATH = "/app/getmediainfo"
+        const val DEFAULT_START_LIVE_PATH = "/?custom=1&cmd=2015&par="
+        const val DEFAULT_SWITCH_CAMERA_PATH = "/app/setparamvalue?param=switchcam&value="
 
-    // HTTP API endpoints
-    const val HTTP_BASE = "http://$DASHCAM_IP:$HTTP_PORT"
+        const val CAMERA_FRONT = 0
+        const val CAMERA_REAR = 1
+        const val CAMERA_PIP = 2
+    }
 
-    // Camera channels
-    const val CAMERA_FRONT = 0
-    const val CAMERA_REAR = 1
-    const val CAMERA_PIP = 2
+    // Effective values (override or F9 default)
+    val ip: String = (map?.get("ip") as? String) ?: DEFAULT_IP
+    val rtspPort: Int = (map?.get("rtspPort") as? Number)?.toInt() ?: DEFAULT_RTSP_PORT
+    val httpPort: Int = (map?.get("httpPort") as? Number)?.toInt() ?: DEFAULT_HTTP_PORT
+    val userAgent: String = (map?.get("userAgent") as? String) ?: DEFAULT_USER_AGENT
 
-    // === Standard HTTP API endpoints ===
-    const val API_ENTER_RECORDER = "$HTTP_BASE/app/enterrecorder"
-    const val API_EXIT_RECORDER = "$HTTP_BASE/app/exitrecorder"
-    const val API_SWITCH_CAMERA = "$HTTP_BASE/app/setparamvalue?param=switchcam&value="
-    const val API_HEARTBEAT = "$HTTP_BASE/app/getparamvalue?param=rec"
-    const val API_GET_MEDIA_INFO = "$HTTP_BASE/app/getmediainfo"
+    // Base URLs
+    private val httpBase: String = "http://$ip:$httpPort"
 
-    // === Vidure's HTTP API endpoints ===
-    // Step 1: Enter recorder mode
-    const val API_ENTER_RECORDER_VIDURE = "$HTTP_BASE/?custom=1&cmd=3023#3035"
+    // RTSP URL (full override or built from ip + port)
+    val rtspUrl: String = (map?.get("rtspUrl") as? String) ?: "rtsp://$ip:$rtspPort/"
 
-    // Step 2: Get stream URL
-    const val API_GET_STREAM_URL = "$HTTP_BASE/?custom=1&cmd=2019"
-
-    // Step 3: Start live preview - CRITICAL! This activates the stream
-    const val API_START_LIVE = "$HTTP_BASE/?custom=1&cmd=2015&par="
-
-    // User-Agent header required by dashcam
-    const val USER_AGENT = "HiCamera"
+    // HTTP API endpoints (full override or built from base + F9 default path)
+    val apiHeartbeat: String =
+        (map?.get("heartbeatEndpoint") as? String) ?: "$httpBase$DEFAULT_HEARTBEAT_PATH"
+    val apiEnterRecorder: String =
+        (map?.get("enterRecorderEndpoint") as? String) ?: "$httpBase$DEFAULT_ENTER_RECORDER_PATH"
+    val apiGetMediaInfo: String =
+        (map?.get("getMediaInfoEndpoint") as? String) ?: "$httpBase$DEFAULT_GET_MEDIA_INFO_PATH"
+    val apiStartLive: String =
+        (map?.get("startLiveEndpoint") as? String) ?: "$httpBase$DEFAULT_START_LIVE_PATH"
+    val apiSwitchCamera: String =
+        (map?.get("switchCameraEndpoint") as? String) ?: "$httpBase$DEFAULT_SWITCH_CAMERA_PATH"
 }

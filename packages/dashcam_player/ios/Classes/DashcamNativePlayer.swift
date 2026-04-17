@@ -8,6 +8,7 @@ class DashcamNativePlayer {
 
     private let playerId: Int
     private let plugin: DashcamPlayerPlugin
+    private let config: DashcamConfig
     private let bridge = DashcamNativeBridge()
     private var playerPtr: NSNumber?
 
@@ -16,9 +17,10 @@ class DashcamNativePlayer {
     private var shouldStopConnecting = false
     private var currentCamera: Int = DashcamConfig.CAMERA_FRONT
 
-    init(playerId: Int, plugin: DashcamPlayerPlugin) {
+    init(playerId: Int, plugin: DashcamPlayerPlugin, config: DashcamConfig) {
         self.playerId = playerId
         self.plugin = plugin
+        self.config = config
     }
 
     // MARK: - Public API
@@ -192,7 +194,7 @@ class DashcamNativePlayer {
             for rtspAttempt in 1...3 {
                 if isReleased || shouldStopConnecting { break }
                 if verbose { log("RTSP attempt \(rtspAttempt)/3") }
-                connected = bridge.nativeConnect(ptr, url: DashcamConfig.RTSP_URL)
+                connected = bridge.nativeConnect(ptr, url: config.rtspUrl)
                 if connected {
                     log("RTSP connected on attempt \(rtspAttempt)")
                     break
@@ -240,7 +242,7 @@ class DashcamNativePlayer {
         }
 
         // Call HTTP API to switch camera
-        let urlString = "\(DashcamConfig.API_SWITCH_CAMERA)\(camera)"
+        let urlString = "\(config.apiSwitchCamera)\(camera)"
         let switchOk = httpGet(urlString)
         if !switchOk {
             log("WARNING: Camera switch API failed, attempting reconnect anyway")
@@ -262,7 +264,7 @@ class DashcamNativePlayer {
         var attemptNumber = 0
         while !isReleased && !shouldStopConnecting {
             attemptNumber += 1
-            let connected = bridge.nativeConnect(ptr, url: DashcamConfig.RTSP_URL)
+            let connected = bridge.nativeConnect(ptr, url: config.rtspUrl)
             if connected {
                 bridge.nativeStart(ptr)
                 sendStatus("Camera \(camera) active")
@@ -286,21 +288,21 @@ class DashcamNativePlayer {
     // MARK: - HTTP API Helpers (same as Android)
 
     private func pingDashcam() -> Bool {
-        return httpGet(DashcamConfig.API_HEARTBEAT)
+        return httpGet(config.apiHeartbeat)
     }
 
     private func enterRecorderMode() -> Bool {
-        return httpGet(DashcamConfig.API_ENTER_RECORDER)
+        return httpGet(config.apiEnterRecorder)
     }
 
     private func getMediaInfo() -> Bool {
         // Non-critical, return true even on failure
-        _ = httpGet(DashcamConfig.API_GET_MEDIA_INFO)
+        _ = httpGet(config.apiGetMediaInfo)
         return true
     }
 
     private func startLivePreview(cameraIndex: Int) -> Bool {
-        let url = "\(DashcamConfig.API_START_LIVE)\(cameraIndex)"
+        let url = "\(config.apiStartLive)\(cameraIndex)"
         return httpGet(url)
     }
 
@@ -310,7 +312,7 @@ class DashcamNativePlayer {
 
         while Date().timeIntervalSince(startTime) < Double(timeoutMs) / 1000.0 {
             attempts += 1
-            if checkTcpPort(host: DashcamConfig.DASHCAM_IP, port: DashcamConfig.RTSP_PORT, timeoutMs: 500) {
+            if checkTcpPort(host: config.ip, port: config.rtspPort, timeoutMs: 500) {
                 log("RTSP port ready after \(attempts) attempts")
                 return true
             }
@@ -325,7 +327,7 @@ class DashcamNativePlayer {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 3.0
-        request.setValue(DashcamConfig.USER_AGENT, forHTTPHeaderField: "User-Agent")
+        request.setValue(config.userAgent, forHTTPHeaderField: "User-Agent")
 
         let semaphore = DispatchSemaphore(value: 0)
         var success = false
@@ -350,7 +352,7 @@ class DashcamNativePlayer {
         stopHeartbeat()
         heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             guard let self = self, !self.isReleased else { return }
-            self.httpGet(DashcamConfig.API_HEARTBEAT)
+            self.httpGet(config.apiHeartbeat)
         }
     }
 
